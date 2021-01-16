@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Snake</title>
+    <style>
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script>
+      /**
+       * Snake en JavaScript dans le browser.
+       * Pour illustrer la resolution du probleme :
+       * "Comment faire pour que ca soit pas le bordel dans
+       * mon code quand il fait des milliers de ligne ?"
+       *
+       * Quand t'as un probleme a resoudre, tu dois reflechir
+       * a une maniere de le faire qui est efficace, claire,
+       * et surtout qui fait en sorte que quand tu vas ajouter
+       * d'autres fonctionalite, ca devienne pas un bordel
+       * ilisible et baucoup trop complique.
+       *
+       * Les generations de programeurs ont fini par trouver
+       * des manieres de resoudre des problemes classiques tel que
+       * "normalement si tu fais un truc dans ce genre la,
+       * ca vas bien se passer". Les "truc dans ce genre la",
+       * on appel ca des design pattern.
+       *
+       * Demonstration des design pattern :
+       * - Observer/Observable
+       * - Model/Vue/Controler
+       *
+       * /!\ Ces techniques d'architecture logiciel
+       * sont surtout puissante dans les projets de grande
+       * taille. Dans le cas d'un snake c'est un peu
+       * overkill. On aurais fait plus simple en pratique.
+       */
+
+      "use strict";
+
+      /* ************* Ovserver/ Observable ************* */
+
+      /**
+       * Interface Ovserver/ Class abstraite Observable
+       *
+       * Ces class prennent leurs sens quand on en herites.
+       *
+       * Les Observeurs doivent implementer "update()"
+       * et s'ajouter a leurs Observables respectifs.
+       *
+       * Quand un Observable appel "notify_observers()",
+       * la fonction update de tous ses Observers est appele.
+       */
+
+      class Observer {
+        update() {
+          throw new Error("Method 'update()' must be implemented.");
+        }
+      }
+
+      class Observable {
+        observers;
+
+        constructor() {
+          this.observers = new Array();
+        }
+
+        add_observer(observer) {
+          this.observers.push(observer);
+        }
+
+        remove_observer(observer) {
+          for (let i = 0; i < this.observers.length; ++i) {
+            if (this.observers[i] === observer) {
+              this.observers.splice(i, 1);
+              --i;
+            }
+          }
+        }
+
+        notify_observers() {
+          for (const observer of this.observers) {
+            observer.update();
+          }
+        }
+      }
+
+      /* ************* Model ************* */
+
+      /**
+       * "Paquet" Model :
+       * - Field
+       * - Snake
+       * - Model
+       *
+       * Corespond a l'etat interne du jeu.
+       * C'est ici qu'a lieu toutes la logique.
+       */
+
+      class Field extends Observable {
+        model;
+        foods;
+        size;
+
+        constructor(model, size, init_x, init_y) {
+          super();
+          this.model = model;
+          this.size = size;
+          this.foods = new Array();
+          while (this.foods.length < 2) {
+            const x = Math.floor(Math.random() * this.size);
+            const y = Math.floor(Math.random() * this.size);
+            if (x != init_x && y != init_y) {
+              let same_pos = false;
+              for (const food of this.foods) {
+                if (food.x == x && food.y == y) {
+                  same_pos = true;
+                  break;
+                }
+              }
+              if (!same_pos) {
+                this.foods.push({ x, y });
+              }
+            }
+          }
+        }
+
+        get_size() {
+          return this.size;
+        }
+
+        get_foods() {
+          return this.foods;
+        }
+
+        replace_food(i, snake_positions) {
+          let replaced = false;
+          while (!replaced) {
+            const x = Math.floor(Math.random() * this.size);
+            const y = Math.floor(Math.random() * this.size);
+
+            let same_pos = false;
+            for (const food of this.foods) {
+              if (food.x == x && food.y == y) {
+                same_pos = true;
+                break;
+              }
+            }
+            if (!same_pos) {
+              for (const position of snake_positions) {
+                if (position.x == x && position.y == y) {
+                  same_pos = true;
+                  break;
+                }
+              }
+              if (!same_pos) {
+                this.foods[i] = { x, y };
+                replaced = true;
+              }
+            }
+          }
+          this.notify_observers();
+        }
+      }
+
+      const direction = {
+        UP: "up",
+        DOWN: "down",
+        LEFT: "left",
+        RIGHT: "right",
+      };
+
+      class Snake extends Observable {
+        model;
+        field;
+        positions;
+
+        constructor(model, field, x, y) {
+          super();
+          this.model = model;
+          this.field = field;
+          this.positions = new Array();
+          this.positions.push({ x, y });
+        }
+
+        move(d) {
+          let { x, y } = this.positions[0];
+
+          switch (d) {
+            case direction.UP:
+              y = (y - 1 + this.field.get_size()) % this.field.get_size();
+              break;
+            case direction.DOWN:
+              y = (y + 1) % this.field.get_size();
+              break;
+            case direction.LEFT:
+              x = (x - 1 + this.field.get_size()) % this.field.get_size();
+              break;
+            case direction.RIGHT:
+              x = (x + 1) % this.field.get_size();
+              break;
+          }
+
+          for (const position of this.positions) {
+            if (position.x == x && position.y == y) {
+              this.model.trigger_game_over();
+              return;
+            }
+          }
+
+          let eat = false;
+          const foods = this.field.get_foods();
+          for (let i = 0; i < foods.length; ++i) {
+            if (foods[i].x == x && foods[i].y == y) {
+              eat = true;
+              this.field.replace_food(i, this.positions);
+              break;
+            }
+          }
+
+          this.positions.unshift({ x, y });
+
+          if (!eat) {
+            this.positions.pop();
+          }
+
+          this.notify_observers();
+        }
+
+        get_positions() {
+          return this.positions;
+        }
+      }
+
+      class Model extends Observable {
+        field;
+        snake;
+
+        game_over;
+
+        constructor() {
+          super();
+          const start = { x: 9, y: 9 };
+          this.field = new Field(this, 20, start.x, start.y);
+          this.snake = new Snake(this, this.field, start.x, start.y);
+          this.game_over = false;
+        }
+
+        trigger_game_over() {
+          this.game_over = true;
+          this.notify_observers();
+        }
+
+        get_field() {
+          return this.field;
+        }
+
+        get_snake() {
+          return this.snake;
+        }
+
+        get_game_over() {
+          return this.game_over;
+        }
+      }
+
+      /* ************* Vue ************* */
+
+      /**
+       * "Paquet" Vue :
+       * - FieldViewer
+       * - SnakeViewer
+       * - Vue
+       *
+       * Corespond a la logique d'affichage.
+       */
+
+      class FieldViewer extends Observer {
+        vue;
+        field;
+        foods;
+
+        constructor(vue, field) {
+          super();
+          this.vue = vue;
+          this.field = field;
+          this.foods = new Array();
+          this.field.add_observer(this);
+          const case_size = this.vue.get_case_size();
+          for (const food of this.field.get_foods()) {
+            const div = document.createElement("div");
+            div.style.position = "absolute";
+            div.style.backgroundColor = "red";
+            div.style.borderRadius = "100%";
+            div.style.height = `${case_size * 0.5}px`;
+            div.style.width = `${case_size * 0.5}px`;
+            this.foods.push(div);
+            this.vue.get_game_div().appendChild(div);
+          }
+          this.update();
+        }
+
+        update() {
+          const case_size = this.vue.get_case_size();
+          for (let i = 0; i < this.foods.length; ++i) {
+            this.foods[i].style.left = `${
+              case_size * this.field.get_foods()[i].x + case_size / 4
+            }px`;
+            this.foods[i].style.top = `${
+              case_size * this.field.get_foods()[i].y + case_size / 4
+            }px`;
+          }
+        }
+      }
+
+      class SnakeViewer extends Observer {
+        vue;
+        snake;
+        parts;
+
+        constructor(vue, snake) {
+          super();
+          this.vue = vue;
+          this.snake = snake;
+          this.parts = new Array();
+          this.snake.add_observer(this);
+          this.update();
+        }
+
+        create_element() {
+          const case_size = this.vue.get_case_size();
+          const div = document.createElement("div");
+          div.style.position = "absolute";
+          div.style.backgroundColor = "green";
+          div.style.height = `${case_size * 0.9}px`;
+          div.style.width = `${case_size * 0.9}px`;
+          div.style.borderRadius = "10%";
+          div.style.transform = "scale(1.1)";
+          this.parts.push(div);
+          this.vue.get_game_div().appendChild(div);
+        }
+
+        update() {
+          const case_size = this.vue.get_case_size();
+          while (this.parts.length < this.snake.positions.length) {
+            this.create_element();
+          }
+          for (let i = 0; i < this.parts.length; ++i) {
+            this.parts[i].style.left = `${
+              case_size * this.snake.get_positions()[i].x
+            }px`;
+            this.parts[i].style.top = `${
+              case_size * this.snake.get_positions()[i].y
+            }px`;
+          }
+        }
+      }
+
+      class Vue {
+        game_div;
+        size;
+        model;
+        case_size;
+        field_viewer;
+        snake_viewer;
+
+        constructor(game_div, size, model) {
+          this.game_div = game_div;
+          this.size = size;
+          this.model = model;
+          this.case_size = this.size / this.model.get_field().get_size();
+          this.model = model;
+          this.field_viewer = new FieldViewer(this, this.model.get_field());
+          this.snake_viewer = new SnakeViewer(this, this.model.get_snake());
+
+          const grid_size = this.model.get_field().get_size();
+          this.game_div.style.position = "absolute";
+          this.game_div.style.display = "grid";
+          this.game_div.style.gridTemplateColumns = `repeat(${grid_size}, ${1}fr)`;
+          this.game_div.style.gridGap = "0.5%";
+          this.game_div.style.height = `${size}px`;
+          this.game_div.style.width = `${size}px`;
+          for (let i = 0; i < grid_size * grid_size; ++i) {
+            const div = document.createElement("div");
+            div.style.backgroundColor = "gray";
+            div.style.borderRadius = "10%";
+            game_div.appendChild(div);
+          }
+        }
+
+        get_game_div() {
+          return this.game_div;
+        }
+
+        get_size() {
+          return this.size;
+        }
+
+        get_case_size() {
+          return this.case_size;
+        }
+      }
+
+      /* ************* Controler ************* */
+
+      /**
+       * "Paquet" Controler
+       *
+       * C'est la ou on gere les controles.
+       *
+       * Interagi avec le Model en fonction des
+       * signaux recu de la Vue ou autres
+       * (boutons sur la page, touche de clavier) et
+       * en fonction de sont etat interne.
+       */
+
+      class Controler {
+        model;
+        buffer;
+
+        constructor(model) {
+          this.model = model;
+          this.buffer = direction.RIGHT;
+          window.addEventListener("keyup", (e) => {
+            switch (e.key) {
+              case "ArrowUp":
+                this.buffer = direction.UP;
+                break;
+              case "ArrowDown":
+                this.buffer = direction.DOWN;
+                break;
+              case "ArrowLeft":
+                this.buffer = direction.LEFT;
+                break;
+              case "ArrowRight":
+                this.buffer = direction.RIGHT;
+                break;
+            }
+          });
+          this.run();
+        }
+
+        run() {
+          if (!this.model.get_game_over()) {
+            setTimeout(() => {
+              this.model.get_snake().move(this.buffer);
+              this.run();
+            }, 500 * Math.pow(19 / 20, this.model.get_snake().get_positions().length));
+          }
+        }
+      }
+
+      /* ************* Game ************* */
+
+      /**
+       * Assemblage des differente briques
+       */
+
+      class Game extends Observer {
+        game_div;
+        model;
+        vue;
+        controler;
+        promise;
+        resolve;
+
+        constructor() {
+          super();
+          this.game_div = document.getElementById("game");
+          this.model = new Model();
+          this.vue = new Vue(this.game_div, 800, this.model);
+          this.controler = new Controler(this.model);
+          this.promise = new Promise((resolve) => {
+            this.resolve = resolve;
+          });
+          this.model.add_observer(this);
+        }
+
+        update() {
+          alert("Game Over !");
+          this.resolve();
+        }
+
+        wait() {
+          return this.promise;
+        }
+      }
+
+      const main = async () => {
+        const game = new Game();
+        await game.wait();
+      };
+
+      main();
+    </script>
+  </body>
+</html>
